@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FamilyControl</title>
+    <title>FamilyControl - Secure</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; color: #1f2937; }
@@ -32,9 +33,10 @@
         .text-gray-600 { color: #4b5563; }
         .text-gray-800 { color: #1f2937; }
         .text-white { color: white; }
-        input { width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; margin-bottom: 1rem; }
-        input:focus { outline: none; border-color: #2563eb; }
-        button { width: 100%; padding: 0.5rem; border: none; border-radius: 0.375rem; cursor: pointer; margin-bottom: 0.5rem; font-weight: 500; transition: all 0.2s; }
+        .text-red-600 { color: #dc2626; }
+        input { width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; margin-bottom: 1rem; font-size: 1rem; }
+        input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        button { width: 100%; padding: 0.75rem; border: none; border-radius: 0.375rem; cursor: pointer; margin-bottom: 0.5rem; font-weight: 500; transition: all 0.2s; font-size: 1rem; }
         .btn-primary { background: #2563eb; color: white; }
         .btn-primary:hover { background: #1d4ed8; }
         .btn-red { background: #dc2626; color: white; }
@@ -44,7 +46,7 @@
         .btn-purple { background: #9333ea; color: white; }
         .btn-purple:hover { background: #7e22ce; }
         header { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 1rem; margin-bottom: 1.5rem; }
-        .header-content { max-width: 80rem; margin: 0 auto; display: flex; justify-content: space-between; padding: 0 1rem; }
+        .header-content { max-width: 80rem; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; }
         .container { max-width: 80rem; margin: 0 auto; padding: 0 1rem; }
         .device-item { padding: 0.75rem; margin-bottom: 0.5rem; border-radius: 0.375rem; cursor: pointer; background: #f3f4f6; border: none; text-align: left; font-weight: 600; transition: all 0.2s; width: 100%; }
         .device-item:hover { background: #e5e7eb; }
@@ -60,6 +62,8 @@
         .item-box { background: #f9fafb; padding: 0.75rem; border-radius: 0.375rem; margin-bottom: 0.5rem; border: 1px solid #e5e7eb; }
         .item-box-text { word-break: break-all; color: #2563eb; }
         .item-box-time { font-size: 0.75rem; color: #6b7280; }
+        .error { color: #dc2626; font-size: 0.875rem; margin-bottom: 0.5rem; }
+        .user-email { font-size: 0.875rem; color: #6b7280; margin-right: 1rem; }
     </style>
 </head>
 <body>
@@ -67,53 +71,60 @@
     <script>
         const SUPABASE_URL = 'https://rclarbbasnnwmwhpoenn.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjbGFyYmJhc25ud213aHBvZW5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMzc4OTYsImV4cCI6MjA5MzgxMzg5Nn0.yI9jvnzw_gojcR7jNVK5qBwJs9uwpBMv36vvmHwoZMQ';
-        const ADMIN_PASSWORD = 'Family2024!';
+
+        const { createClient } = window.supabase;
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let appState = {
-            authenticated: false,
+            user: null,
             devices: [],
             selectedDevice: null,
             deviceData: null,
-            activeTab: 'overview'
+            activeTab: 'overview',
+            loginError: ''
         };
 
-        async function supabaseQuery(table, method = 'GET', data = null, filters = '') {
-            try {
-                let url = `${SUPABASE_URL}/rest/v1/${table}${filters}`;
-                const options = {
-                    method: method,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'apikey': SUPABASE_ANON_KEY,
-                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-                    }
-                };
-                if (data) options.body = JSON.stringify(data);
-                const response = await fetch(url, options);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return await response.json();
-            } catch (error) {
-                console.error('Errore:', error);
-                return null;
-            }
-        }
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            appState.loginError = '';
 
-        async function login(password) {
-            if (password === ADMIN_PASSWORD) {
-                appState.authenticated = true;
+            try {
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                });
+
+                if (error) {
+                    appState.loginError = '❌ Email o password errata!';
+                    render();
+                    return;
+                }
+
+                appState.user = data.user;
                 loadDevices();
                 setInterval(loadDevices, 5000);
                 render();
-            } else {
-                alert('❌ Password errata!');
+            } catch (error) {
+                appState.loginError = '❌ Errore di connessione';
+                render();
             }
         }
 
         async function loadDevices() {
-            const data = await supabaseQuery('devices', 'GET', null, '?order=last_seen.desc');
-            if (data) {
-                appState.devices = data;
+            try {
+                const { data, error } = await supabase
+                    .from('devices')
+                    .select('*')
+                    .order('last_seen', { ascending: false });
+                
+                if (error) throw error;
+                appState.devices = data || [];
                 render();
+            } catch (error) {
+                console.error('Errore:', error);
             }
         }
 
@@ -125,55 +136,182 @@
 
         async function loadDeviceData() {
             if (!appState.selectedDevice) return;
-            const data = await supabaseQuery('device_data', 'GET', null, `?device_id=eq.${appState.selectedDevice.id}&order=created_at.desc&limit=1`);
-            if (data && data.length > 0) {
-                appState.deviceData = data[0];
-                render();
+            
+            try {
+                const { data, error } = await supabase
+                    .from('device_data')
+                    .select('*')
+                    .eq('device_id', appState.selectedDevice.id)
+                    .order('created_at', { ascending: false })
+                    .limit(1);
+                
+                if (error) throw error;
+                if (data && data.length > 0) {
+                    appState.deviceData = data[0];
+                    render();
+                }
+            } catch (error) {
+                console.error('Errore:', error);
             }
         }
 
         async function sendCommand(command) {
             if (!appState.selectedDevice) return;
-            await supabaseQuery('commands', 'POST', {
-                device_id: appState.selectedDevice.id,
-                command: command,
-                params: {},
-                status: 'pending'
-            });
-            alert(`✅ Comando "${command}" inviato!`);
+            try {
+                await supabase
+                    .from('commands')
+                    .insert([{
+                        device_id: appState.selectedDevice.id,
+                        command: command,
+                        params: {},
+                        status: 'pending'
+                    }]);
+                alert(`✅ Comando "${command}" inviato!`);
+            } catch (error) {
+                alert('❌ Errore');
+            }
         }
 
-        function logout() {
-            appState.authenticated = false;
+        async function logout() {
+            await supabase.auth.signOut();
+            appState.user = null;
             appState.selectedDevice = null;
+            appState.devices = [];
+            appState.loginError = '';
             render();
         }
 
         function render() {
             const app = document.getElementById('app');
-            if (!appState.authenticated) {
-                app.innerHTML = `<div class="min-h-screen flex items-center justify-center bg-gradient"><div class="bg-white rounded-lg shadow-2xl p-8 w-96"><h1 class="text-3xl font-bold text-center mb-6 text-gray-800">FamilyControl</h1><p class="text-center text-gray-600 mb-6">Accedi</p><form onsubmit="event.preventDefault(); login(document.getElementById('password').value);"><input type="password" id="password" placeholder="Password" autofocus /><button type="submit" class="btn-primary">Accedi</button></form></div></div>`;
+            
+            if (!appState.user) {
+                app.innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center bg-gradient">
+                        <div class="bg-white rounded-lg shadow-2xl p-8 w-96">
+                            <h1 class="text-3xl font-bold text-center mb-2 text-gray-800">FamilyControl</h1>
+                            <p class="text-center text-gray-600 mb-6" style="font-size: 0.875rem;">Autenticazione Sicura</p>
+                            
+                            ${appState.loginError ? `<div class="error text-center">${appState.loginError}</div>` : ''}
+                            
+                            <form onsubmit="handleLogin(event);">
+                                <input
+                                    type="email"
+                                    id="email"
+                                    placeholder="Email"
+                                    required
+                                    autofocus
+                                />
+                                <input
+                                    type="password"
+                                    id="password"
+                                    placeholder="Password"
+                                    required
+                                />
+                                <button type="submit" class="btn-primary">Accedi</button>
+                            </form>
+                            <p style="text-align: center; font-size: 0.75rem; color: #9ca3af; margin-top: 1rem;">
+                                Password cifrate con Supabase Auth 🔐
+                            </p>
+                        </div>
+                    </div>
+                `;
             } else {
-                let devicesHtml = '<p class="text-gray-600">Nessun dispositivo</p>';
+                let devicesHtml = '<p class="text-gray-600" style="font-size: 0.875rem;">Nessun dispositivo</p>';
                 if (appState.devices.length > 0) {
-                    devicesHtml = appState.devices.map(device => `<button onclick="selectDevice('${device.id}')" class="device-item ${appState.selectedDevice?.id === device.id ? 'active' : ''}">${device.name}</button>`).join('');
+                    devicesHtml = appState.devices.map(device => `
+                        <button onclick="selectDevice('${device.id}')" class="device-item ${appState.selectedDevice?.id === device.id ? 'active' : ''}">
+                            ${device.name}
+                        </button>
+                    `).join('');
                 }
+
                 let contentHtml = '<div class="content-box p-8 text-center"><p class="text-gray-600">Seleziona un dispositivo</p></div>';
+                
                 if (appState.selectedDevice) {
                     const data = appState.deviceData || {};
                     let tabContent = '';
+                    
                     if (appState.activeTab === 'overview') {
-                        tabContent = `<h3 class="text-lg font-semibold mb-4">Panoramica</h3><div class="stat-box"><div class="stat-label">⏱️ Tempo schermo</div><div class="stat-value">${data.screen_time || '0'} min</div></div><div class="stat-box"><div class="stat-label">📱 App aperte</div><div class="stat-value">${data.open_apps?.length || 0}</div></div><button onclick="sendCommand('take_screenshot')" class="btn-purple">📸 Screenshot</button><button onclick="sendCommand('get_whatsapp')" class="btn-green">💬 WhatsApp</button><button onclick="sendCommand('get_location')" style="background: #ea580c;">📍 GPS</button><button onclick="sendCommand('lock_device')" class="btn-red">🔒 Blocca</button>`;
-                    } else if (appState.activeTab === 'web' && data.web_history) {
-                        tabContent = '<h3 class="text-lg font-semibold mb-4">🌐 Web</h3>' + data.web_history.map(item => `<div class="item-box"><div class="item-box-text">${item.url}</div><div class="item-box-time">${item.time}</div></div>`).join('');
+                        tabContent = `
+                            <h3 class="text-lg font-semibold mb-4">Panoramica</h3>
+                            <div class="stat-box">
+                                <div class="stat-label">⏱️ Tempo schermo</div>
+                                <div class="stat-value">${data.screen_time || '0'} min</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-label">📱 App aperte</div>
+                                <div class="stat-value">${data.open_apps?.length || 0}</div>
+                            </div>
+                            <button onclick="sendCommand('take_screenshot')" class="btn-purple">📸 Screenshot</button>
+                            <button onclick="sendCommand('get_whatsapp')" class="btn-green">💬 WhatsApp</button>
+                            <button onclick="sendCommand('get_location')" style="background: #ea580c; margin-bottom: 0.5rem;">📍 GPS</button>
+                            <button onclick="sendCommand('lock_device')" class="btn-red">🔒 Blocca</button>
+                        `;
+                    } else if (appState.activeTab === 'web') {
+                        tabContent = '<h3 class="text-lg font-semibold mb-4">🌐 Web</h3>';
+                        if (data.web_history && data.web_history.length > 0) {
+                            tabContent += data.web_history.map(item => `
+                                <div class="item-box">
+                                    <div class="item-box-text">${item.url}</div>
+                                    <div class="item-box-time">${item.time}</div>
+                                </div>
+                            `).join('');
+                        } else {
+                            tabContent += '<p class="text-gray-600">Nessuna cronologia</p>';
+                        }
                     } else {
-                        tabContent = '<p class="text-gray-600">Nessun dato</p>';
+                        tabContent = '<p class="text-gray-600">Seleziona una tab</p>';
                     }
-                    contentHtml = `<div class="content-box"><div class="tabs"><button onclick="appState.activeTab = 'overview'; render()" class="tab ${appState.activeTab === 'overview' ? 'active' : ''}">Overview</button><button onclick="appState.activeTab = 'web'; render()" class="tab ${appState.activeTab === 'web' ? 'active' : ''}">Web</button></div><div class="p-6">${tabContent}</div></div>`;
+                    
+                    contentHtml = `
+                        <div class="content-box">
+                            <div class="tabs">
+                                <button onclick="appState.activeTab = 'overview'; render()" class="tab ${appState.activeTab === 'overview' ? 'active' : ''}">Overview</button>
+                                <button onclick="appState.activeTab = 'web'; render()" class="tab ${appState.activeTab === 'web' ? 'active' : ''}">Web</button>
+                            </div>
+                            <div class="p-6">
+                                ${tabContent}
+                            </div>
+                        </div>
+                    `;
                 }
-                app.innerHTML = `<header><div class="header-content"><h1 class="text-2xl font-bold">FamilyControl</h1><button onclick="logout()" class="btn-red" style="width: auto;">Logout</button></div></header><div class="container"><div class="grid-2"><div class="content-box p-4"><h2 class="text-lg font-semibold mb-4">Dispositivi</h2>${devicesHtml}</div><div>${contentHtml}</div></div></div>`;
+                
+                app.innerHTML = `
+                    <header>
+                        <div class="header-content">
+                            <h1 class="text-2xl font-bold">FamilyControl</h1>
+                            <div style="display: flex; align-items: center;">
+                                <span class="user-email">👤 ${appState.user.email}</span>
+                                <button onclick="logout()" class="btn-red" style="width: auto;">Logout</button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div class="container">
+                        <div class="grid-2">
+                            <div class="content-box p-4">
+                                <h2 class="text-lg font-semibold mb-4">Dispositivi</h2>
+                                ${devicesHtml}
+                            </div>
+                            <div>
+                                ${contentHtml}
+                            </div>
+                        </div>
+                    </div>
+                `;
             }
         }
+
+        // Verifica se utente è già loggato
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (session) {
+                appState.user = session.user;
+                loadDevices();
+            } else {
+                appState.user = null;
+            }
+            render();
+        });
 
         render();
     </script>
