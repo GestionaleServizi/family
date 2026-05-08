@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FamilyControl - Secure</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; color: #1f2937; }
@@ -72,9 +71,6 @@
         const SUPABASE_URL = 'https://rclarbbasnnwmwhpoenn.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjbGFyYmJhc25ud213aHBvZW5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMzc4OTYsImV4cCI6MjA5MzgxMzg5Nn0.yI9jvnzw_gojcR7jNVK5qBwJs9uwpBMv36vvmHwoZMQ';
 
-        const { createClient } = window.supabase;
-        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
         let appState = {
             user: null,
             devices: [],
@@ -84,6 +80,31 @@
             loginError: ''
         };
 
+        // Fetch diretto a Supabase REST API (senza JS SDK)
+        async function supabaseAPI(method, endpoint, body = null) {
+            try {
+                const options = {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    }
+                };
+                if (body) options.body = JSON.stringify(body);
+                
+                const response = await fetch(`${SUPABASE_URL}/rest/v1${endpoint}`, options);
+                if (!response.ok) {
+                    if (response.status === 401) throw new Error('Non autorizzato');
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Errore API:', error);
+                return null;
+            }
+        }
+
         async function handleLogin(e) {
             e.preventDefault();
             const email = document.getElementById('email').value;
@@ -92,18 +113,33 @@
             appState.loginError = '';
 
             try {
-                const { data, error } = await supabase.auth.signInWithPassword({
-                    email: email,
-                    password: password
+                const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        password: password
+                    })
                 });
 
-                if (error) {
+                const data = await response.json();
+
+                if (!response.ok || data.error) {
                     appState.loginError = '❌ Email o password errata!';
                     render();
                     return;
                 }
 
-                appState.user = data.user;
+                appState.user = {
+                    email: data.user?.email || email,
+                    id: data.user?.id
+                };
+                
+                localStorage.setItem('auth_token', data.access_token);
+                
                 loadDevices();
                 setInterval(loadDevices, 5000);
                 render();
@@ -114,17 +150,10 @@
         }
 
         async function loadDevices() {
-            try {
-                const { data, error } = await supabase
-                    .from('devices')
-                    .select('*')
-                    .order('last_seen', { ascending: false });
-                
-                if (error) throw error;
-                appState.devices = data || [];
+            const data = await supabaseAPI('GET', '/devices?order=last_seen.desc');
+            if (data) {
+                appState.devices = Array.isArray(data) ? data : [];
                 render();
-            } catch (error) {
-                console.error('Errore:', error);
             }
         }
 
@@ -136,44 +165,26 @@
 
         async function loadDeviceData() {
             if (!appState.selectedDevice) return;
-            
-            try {
-                const { data, error } = await supabase
-                    .from('device_data')
-                    .select('*')
-                    .eq('device_id', appState.selectedDevice.id)
-                    .order('created_at', { ascending: false })
-                    .limit(1);
-                
-                if (error) throw error;
-                if (data && data.length > 0) {
-                    appState.deviceData = data[0];
-                    render();
-                }
-            } catch (error) {
-                console.error('Errore:', error);
+            const data = await supabaseAPI('GET', `/device_data?device_id=eq.${appState.selectedDevice.id}&order=created_at.desc&limit=1`);
+            if (data && data.length > 0) {
+                appState.deviceData = data[0];
+                render();
             }
         }
 
         async function sendCommand(command) {
             if (!appState.selectedDevice) return;
-            try {
-                await supabase
-                    .from('commands')
-                    .insert([{
-                        device_id: appState.selectedDevice.id,
-                        command: command,
-                        params: {},
-                        status: 'pending'
-                    }]);
-                alert(`✅ Comando "${command}" inviato!`);
-            } catch (error) {
-                alert('❌ Errore');
-            }
+            await supabaseAPI('POST', '/commands', {
+                device_id: appState.selectedDevice.id,
+                command: command,
+                params: {},
+                status: 'pending'
+            });
+            alert(`✅ Comando "${command}" inviato!`);
         }
 
-        async function logout() {
-            await supabase.auth.signOut();
+        function logout() {
+            localStorage.removeItem('auth_token');
             appState.user = null;
             appState.selectedDevice = null;
             appState.devices = [];
@@ -189,7 +200,7 @@
                     <div class="min-h-screen flex items-center justify-center bg-gradient">
                         <div class="bg-white rounded-lg shadow-2xl p-8 w-96">
                             <h1 class="text-3xl font-bold text-center mb-2 text-gray-800">FamilyControl</h1>
-                            <p class="text-center text-gray-600 mb-6" style="font-size: 0.875rem;">Autenticazione Sicura</p>
+                            <p class="text-center text-gray-600 mb-6" style="font-size: 0.875rem;">Autenticazione Sicura 🔐</p>
                             
                             ${appState.loginError ? `<div class="error text-center">${appState.loginError}</div>` : ''}
                             
@@ -210,7 +221,7 @@
                                 <button type="submit" class="btn-primary">Accedi</button>
                             </form>
                             <p style="text-align: center; font-size: 0.75rem; color: #9ca3af; margin-top: 1rem;">
-                                Password cifrate con Supabase Auth 🔐
+                                Password cifrate nel database Supabase
                             </p>
                         </div>
                     </div>
@@ -259,8 +270,6 @@
                         } else {
                             tabContent += '<p class="text-gray-600">Nessuna cronologia</p>';
                         }
-                    } else {
-                        tabContent = '<p class="text-gray-600">Seleziona una tab</p>';
                     }
                     
                     contentHtml = `
@@ -301,17 +310,6 @@
                 `;
             }
         }
-
-        // Verifica se utente è già loggato
-        supabase.auth.onAuthStateChange((event, session) => {
-            if (session) {
-                appState.user = session.user;
-                loadDevices();
-            } else {
-                appState.user = null;
-            }
-            render();
-        });
 
         render();
     </script>
