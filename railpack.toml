@@ -1,0 +1,10 @@
+[build]
+  base = "backend"
+  buildCommand = "npm install"
+
+[run]
+  startCommand = "node server.js"
+
+[deploy]
+  healthcheckPath = "/health"
+  healthcheckTimeout = 300
