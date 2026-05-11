@@ -13,10 +13,8 @@ const PORT = process.env.PORT || 3000;
 app.use(cors({
   origin: [
     'https://familycontrol-frontend-production.up.railway.app',
-    'https://familycontrol-frontend.up.railway.app',
-    'http://localhost:3000',
-    'http://localhost:3001'
-  ],
+    'https://familycontrol-frontend.up.railway.app'
+      ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
