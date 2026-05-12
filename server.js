@@ -19,9 +19,8 @@ const pool = new Pool({
 // Middleware
 app.use(cors({
   origin: [
-    'https://familycontrol-frontend-production.up.railway.app',
-    'http://localhost:3000'
-  ],
+    'https://familycontrol-frontend-production.up.railway.app'
+      ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
