@@ -2,7 +2,6 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 
@@ -16,11 +15,12 @@ const pool = new Pool({
   }
 });
 
-// Middleware
+// Middleware CORS
 app.use(cors({
   origin: [
-    'https://familycontrol-frontend-production.up.railway.app'
-      ],
+    'https://familycontrol-frontend-production.up.railway.app',
+    'http://localhost:3000'
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -28,14 +28,25 @@ app.use(cors({
 app.use(express.json());
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    database: 'connected'
-  });
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+
+    res.json({
+      status: 'ok',
+      database: 'connected'
+    });
+  } catch (error) {
+    console.error('DB HEALTH ERROR:', error);
+
+    res.status(500).json({
+      status: 'error',
+      database: 'disconnected'
+    });
+  }
 });
 
-// Login PostgreSQL + JWT
+// Login TEMPORANEO con password in chiaro
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -46,9 +57,8 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Cerca utente
     const result = await pool.query(
-      'SELECT * FROM users WHERE username = $1',
+      'SELECT id, username, password_hash, email FROM users WHERE username = $1',
       [username]
     );
 
@@ -60,26 +70,20 @@ app.post('/api/auth/login', async (req, res) => {
 
     const user = result.rows[0];
 
-    // Verifica password bcrypt
-    const validPassword = await bcrypt.compare(
-      password,
-      user.password_hash
-    );
-
-    if (!validPassword) {
+    // TEST TEMPORANEO: confronto password in chiaro
+    if (password !== user.password_hash) {
       return res.status(401).json({
         error: 'Password non valida'
       });
     }
 
-    // JWT token
     const token = jwt.sign(
       {
         id: user.id,
         username: user.username,
         email: user.email
       },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'temporary_secret_for_test',
       {
         expiresIn: '24h'
       }
@@ -103,53 +107,21 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Route temporanea reset password
-app.post('/api/debug/reset-password', async (req, res) => {
+// Test route devices
+app.get('/api/devices', async (req, res) => {
   try {
-    const { username, password, secret } = req.body;
-
-    if (secret !== process.env.RESET_SECRET) {
-      return res.status(403).json({
-        error: 'Forbidden'
-      });
-    }
-
-    const hash = await bcrypt.hash(password, 10);
-
-    await pool.query(
-      'UPDATE users SET password_hash = $1 WHERE username = $2',
-      [hash, username]
+    const result = await pool.query(
+      'SELECT id, name, device_type, status, last_seen, user_id FROM devices ORDER BY id ASC'
     );
 
-    res.json({
-      status: 'ok',
-      username,
-      message: 'Password aggiornata'
-    });
-
+    res.json(result.rows);
   } catch (error) {
-    console.error('RESET ERROR:', error);
+    console.error('DEVICES ERROR:', error);
 
     res.status(500).json({
-      error: 'Errore reset password'
+      error: 'Errore recupero dispositivi'
     });
   }
-});
-
-// Test devices route
-app.get('/api/devices', (req, res) => {
-  res.json([
-    {
-      id: 1,
-      name: 'Samsung Galaxy',
-      status: 'online'
-    },
-    {
-      id: 2,
-      name: 'iPhone',
-      status: 'offline'
-    }
-  ]);
 });
 
 const PORT = process.env.PORT || 3000;
