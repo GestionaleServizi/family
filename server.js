@@ -12,7 +12,6 @@ const { Pool } = require('pg');
 
 const app = express();
 
-// ==================== VALIDAZIONE VARIABILI ====================
 if (!process.env.DATABASE_URL) {
   console.error('❌ DATABASE_URL mancante');
   process.exit(1);
@@ -23,26 +22,23 @@ if (!process.env.JWT_SECRET) {
   process.exit(1);
 }
 
-// ==================== DATABASE ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-pool.connect((err, client, release) => {
+pool.connect((err) => {
   if (err) {
-    console.error('❌ Errore connessione database:', err.stack);
+    console.error('❌ Database connection error:', err.stack);
   } else {
-    console.log('✅ Database connesso');
-    release();
+    console.log('✅ Database connected');
   }
 });
 
-// ==================== MIDDLEWARE ====================
+// Middleware
 app.use(helmet());
 app.use(compression());
 app.use(morgan('combined'));
-
 app.use(cors({
   origin: [
     'https://familycontrol-frontend-production.up.railway.app',
@@ -51,28 +47,26 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
 app.use(express.json({ limit: '10mb' }));
 
-// Rate limit generale
+// Rate limiting
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
-  message: { error: 'Troppe richieste, riprova più tardi' }
+  message: { error: 'Too many requests' }
 }));
 
-// Rate limit login
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  message: { error: 'Troppi tentativi di login, riprova più tardi' }
+  message: { error: 'Too many login attempts' }
 });
 
-// ==================== MIDDLEWARE JWT ====================
+// JWT Middleware
 function verifyToken(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Token mancante o non valido' });
+    return res.status(401).json({ error: 'Token mancante' });
   }
   const token = authHeader.split(' ')[1];
   try {
@@ -80,13 +74,12 @@ function verifyToken(req, res, next) {
     req.user = decoded;
     next();
   } catch (error) {
-    return res.status(401).json({ error: 'Token scaduto o non valido' });
+    return res.status(401).json({ error: 'Token non valido' });
   }
 }
 
 // ==================== ROUTES ====================
 
-// Health check
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -96,12 +89,11 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// Login
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ error: 'Username e password obbligatori' });
+      return res.status(400).json({ error: 'Missing fields' });
     }
 
     const result = await pool.query(
@@ -110,13 +102,13 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Credenziali non valide' });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const user = result.rows[0];
-    const validPassword = await bcrypt.compare(password, user.password_hash);
-    if (!validPassword) {
-      return res.status(401).json({ error: 'Credenziali non valide' });
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const token = jwt.sign(
@@ -128,33 +120,26 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
   } catch (error) {
     console.error('LOGIN ERROR:', error);
-    res.status(500).json({ error: 'Errore server' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Profilo utente
-app.get('/api/auth/me', verifyToken, async (req, res) => {
-  res.json({ user: { id: req.user.id, username: req.user.username, email: req.user.email } });
-});
-
-// ==================== API DISPOSITIVI ====================
-
-// Lista dispositivi
+// Devices
 app.get('/api/devices', verifyToken, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, name, device_type, status, last_seen, user_id
-       FROM devices WHERE user_id = $1 ORDER BY last_seen DESC NULLS LAST`,
+      `SELECT id, name, device_type, status, last_seen
+       FROM devices WHERE user_id = $1 ORDER BY last_seen DESC`,
       [req.user.id]
     );
     res.json(result.rows);
   } catch (error) {
     console.error('DEVICES ERROR:', error);
-    res.status(500).json({ error: 'Errore recupero dispositivi' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Ricevi dati da un dispositivo
+// Receive data from device
 app.post('/api/devices/:deviceId/data', verifyToken, async (req, res) => {
   const { deviceId } = req.params;
   const { dataType, dataContent } = req.body;
@@ -169,7 +154,7 @@ app.post('/api/devices/:deviceId/data', verifyToken, async (req, res) => {
         [deviceId, deviceId, req.user.id]
       );
     } else if (deviceCheck.rows[0].user_id !== req.user.id) {
-      return res.status(403).json({ error: 'Dispositivo non autorizzato' });
+      return res.status(403).json({ error: 'Forbidden' });
     }
     
     await pool.query(
@@ -183,11 +168,11 @@ app.post('/api/devices/:deviceId/data', verifyToken, async (req, res) => {
     res.json({ status: 'ok' });
   } catch (error) {
     console.error('DATA ERROR:', error);
-    res.status(500).json({ error: 'Errore salvataggio dati' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Ottieni dati di un dispositivo
+// Get device data
 app.get('/api/devices/:deviceId/data', verifyToken, async (req, res) => {
   const { deviceId } = req.params;
   const { limit = 50 } = req.query;
@@ -202,11 +187,11 @@ app.get('/api/devices/:deviceId/data', verifyToken, async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('FETCH DATA ERROR:', error);
-    res.status(500).json({ error: 'Errore recupero dati' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Registrazione dispositivo
+// Register device
 app.post('/api/devices/register', verifyToken, async (req, res) => {
   const { deviceId, deviceName, deviceType } = req.body;
   
@@ -222,11 +207,11 @@ app.post('/api/devices/register', verifyToken, async (req, res) => {
     res.json(result.rows[0]);
   } catch (error) {
     console.error('REGISTER ERROR:', error);
-    res.status(500).json({ error: 'Errore registrazione dispositivo' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Ottieni comandi pendenti
+// Get pending commands
 app.get('/api/devices/:deviceId/commands', verifyToken, async (req, res) => {
   const { deviceId } = req.params;
   
@@ -240,11 +225,11 @@ app.get('/api/devices/:deviceId/commands', verifyToken, async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('COMMANDS ERROR:', error);
-    res.status(500).json({ error: 'Errore recupero comandi' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Marca comando come completato
+// Update command result
 app.patch('/api/commands/:commandId', verifyToken, async (req, res) => {
   const { commandId } = req.params;
   const { status, result } = req.body;
@@ -258,11 +243,11 @@ app.patch('/api/commands/:commandId', verifyToken, async (req, res) => {
     res.json({ status: 'ok' });
   } catch (error) {
     console.error('UPDATE COMMAND ERROR:', error);
-    res.status(500).json({ error: 'Errore aggiornamento comando' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Invia comando a dispositivo
+// Send command to device
 app.post('/api/devices/:deviceId/command', verifyToken, async (req, res) => {
   const { deviceId } = req.params;
   const { command, params } = req.body;
@@ -277,36 +262,38 @@ app.post('/api/devices/:deviceId/command', verifyToken, async (req, res) => {
     res.json(result.rows[0]);
   } catch (error) {
     console.error('SEND COMMAND ERROR:', error);
-    res.status(500).json({ error: 'Errore invio comando' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Aggiorna stato dispositivo
+// Update device status
 app.patch('/api/devices/:deviceId/status', verifyToken, async (req, res) => {
   const { deviceId } = req.params;
   const { status } = req.body;
   
   try {
-    await pool.query(`UPDATE devices SET status = $1, last_seen = NOW() WHERE id = $2`, [status || 'offline', deviceId]);
+    await pool.query(
+      `UPDATE devices SET status = $1, last_seen = NOW() WHERE id = $2`,
+      [status || 'offline', deviceId]
+    );
     res.json({ status: 'ok' });
   } catch (error) {
     console.error('STATUS ERROR:', error);
-    res.status(500).json({ error: 'Errore aggiornamento stato' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ==================== 404 ====================
+// 404 handler
 app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'Endpoint non trovato' });
+  res.status(404).json({ error: 'Endpoint not found' });
 });
 
 // Error handler
 app.use((error, req, res, next) => {
   console.error('GLOBAL ERROR:', error);
-  res.status(500).json({ error: 'Errore interno server' });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
-// ==================== AVVIO SERVER ====================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
